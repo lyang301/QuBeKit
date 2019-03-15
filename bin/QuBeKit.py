@@ -24,6 +24,9 @@ import collections
 import re
 import configparser
 from decimal import Decimal
+import matplotlib
+#display issue when ssh into server on Mac
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 remove_digits = str.maketrans('', '', digits)
 from colorama import Fore
@@ -39,7 +42,7 @@ except:
 ###################################################################################################
 #Parameter arrays
 ###################################################################################################
-improper_list=[0, 160, 161, 162, 165, 205, 221, 277] #list of improper torsions not to refit includes 165 a 
+improper_list=[0, 160, 161, 162, 205, 221, 277] #list of improper torsions not to refit includes 165 a 
 divisonarray= [2, 1, 0.5, 0.1, 0.01, 0.001] #parameter divison array 
 XML_GMX_list=[0, 160, 161, 162, 221, 277] #this list should not need to be changed and seperates proper torsions and out of plane improper torsions for the xml and GMX files
 ###################################################################################################
@@ -50,11 +53,11 @@ loc=os.environ.get("QuBeKit")
 try: 
         with open(os.path.join(loc,"bin/new_config.ini")) as source:
             config.readfp( source )
-            theory = str(config['qm']['theory'])
+            theory = config['qm']['theory']
 except:
         with open(os.path.join(loc,"bin/config.ini")) as source:
             config.readfp( source )
-            theory = str(config['qm']['theory'])
+            theory = config['qm']['theory']
 #config.read('config.ini')
 vib_scaling= float(config['qm']['vib_scaling'])
 processors= int(config['qm']['processors'])
@@ -62,7 +65,7 @@ memory= int(config['qm']['memory'])
 dihstart= int(config['fitting']['dihstart'])
 increment= int(config['fitting']['increment'])
 numscan= int(config['fitting']['numscan'])
-T_weight= str(config['fitting']['T_weight'])
+T_weight= float(config['fitting']['T_weight'])
 new_dihnum= int(config['fitting']['new_dihnum'])
 Q_file= config['fitting']['Q_file']
 tor_limit= int(config['fitting']['tor_limit'])
@@ -118,7 +121,7 @@ T_weight= %s
 new_dihnum= %s
 Q_file= %s
 tor_limit= %s
-div_index = %s'''%( config['qm']['theory'], float(config['qm']['vib_scaling']), int(config['qm']['processors']), int(config['qm']['memory']), int(config['fitting']['dihstart']), int(config['fitting']['increment']), int(config['fitting']['numscan']),  str(config['fitting']['T_weight']), int(config['fitting']['new_dihnum']), config['fitting']['Q_file'], int(config['fitting']['tor_limit']), int(config['fitting']['div_index']) ))
+div_index = %s'''%( config['qm']['theory'], float(config['qm']['vib_scaling']), int(config['qm']['processors']), int(config['qm']['memory']), int(config['fitting']['dihstart']), int(config['fitting']['increment']), int(config['fitting']['numscan']),  float(config['fitting']['T_weight']), int(config['fitting']['new_dihnum']), config['fitting']['Q_file'], int(config['fitting']['tor_limit']), int(config['fitting']['div_index']) ))
   
    elif args.config:
        config_main=args.config
@@ -201,7 +204,7 @@ ligand
     for line in lines:
       if 'HETATM' in line:
        tag= line.split()[2][:2].translate(remove_digits)
-       out.write('%-2s      %9.6f    %9.6f    %9.6f\n'%(tag, float(line.split()[6]), float(line.split()[7]), float(line.split()[8])))
+       out.write('%-2s      %9.6f    %9.6f    %9.6f\n'%(tag, float(line[30:38]), float(line[38:46]), float(line[46:54])))
     out.write('\n')
     out.write('\n')
     out.write('\n')
@@ -441,30 +444,27 @@ def cmd_prep(dihnum): #Prep the BOSS command file to read our new custom param f
      else:
         out.write(line)
 ###################################################################################################
-def errorcal(Lambda,dih_ref,torsionparams, T_weight): #Torsion fitting error calc
-    K_b=0.001987 #Boltzman constant 
+def errorcal(Lambda,dih_ref,torsionparams, T_weight):
+    K_b=0.001987
     np.set_printoptions(suppress=True, precision=12)
     mm=open('ligandmm','r')
-    qm=open('ligandqm','r') 
-    linesqm=( line for line in qm)  #gather qm data
+    qm=open('ligandqm','r') #Does not change between scans maybe keep in memory?
+    linesqm=( line for line in qm)
     qm_table=np.loadtxt(linesqm, usecols=(0))
-    qm_min=min(qm_table)          #find minimun point to make energy relative to
+    qm_min=min(qm_table)
     linesmm=(line for line in mm)
     mm_table=np.loadtxt(linesmm, usecols=(0))
-    qm_table=(qm_table-qm_min) * 627.509  #convert to kcal/mol
+    qm_table=(qm_table-qm_min) * 627.509
     table=np.array([qm_table, mm_table])
     table = table.T
     np.savetxt('compare', table,  fmt='% 8.6f       % 8.6f')
-    ERRA=(mm_table-qm_table)**2   
+    ERRA=(mm_table-qm_table)**2
+    ERRA1=ERRA * np.exp(-qm_table/(K_b*T_weight))
     ERRS=math.sqrt(np.sum(ERRA)/(numscan))
-    if T_weight != 'infinity':   #if T_weight has been changed use weighting
-       ERRA1=ERRA * np.exp(-qm_table/(K_b*float(T_weight)))
-       ERRS1=math.sqrt(np.sum(ERRA1)/(numscan))
-    else:   #do not use weighting coresponds to T_weight = infinity
-       ERRS1=ERRS
-    penalty= Lambda * np.sum(np.absolute(dih_ref-torsionparams))  #calculate pentaly with user lambda
+    ERRS1=math.sqrt(np.sum(ERRA1)/(numscan))
+    penalty= Lambda * np.sum(np.absolute(dih_ref-torsionparams))
     sumerror=(ERRS1 + penalty)
-    return sumerror, penalty  #return the total error and the pentaly contribution
+    return sumerror, penalty
 ###################################################################################################
 def starting_error( Q_file, Lambda, N_torsions):
     dih_ref = ref_find(N_torsions)
@@ -494,9 +494,9 @@ def plot():
     plot=open('Plot','w+')
     plot.write('Torsion energy comparison\n')
     plot.write('Angle  QM energy   MM energy\n')
-    angles=np.linspace(0, 360, 25)
+    angles=np.linspace(dihstart, dihstart+increment*(numscan-1), numscan)
     i=0
-    while i < 25:
+    while i < numscan:
      plot.write("% 3i   % 3.6f   % 3.6f\n"%(angles[i],comp_table[i,0],comp_table[i,1]))
      i=i+1
     return None
@@ -521,7 +521,7 @@ def py_plot():
     Fitted_data = plt.plot(angle, fitted, label='Final parameters', color='black')
     plt.title("Relative energy as a function of torsion angle %s"%(dihnum))
     plt.xlabel("Torsion angle$^{\circ}$")
-    plt.ylabel("Relative energy kcal/mol")
+    plt.ylabel("Relative energy Kcal/mol")
     plt.legend(loc=1)
     #fig=plt.plot(angle,QM, 'bo', angle, MM, 'r--', angle, fitted, 'k')
     plt.savefig('Scan.pdf')
@@ -1096,6 +1096,8 @@ def BONDS_fit():
                        tag='Br'
                   elif int(line.split()[1]) == 5:
                        tag='B'
+                  elif int(line.split()[1]) == 79:
+                       tag='Au'
                   out.write('%4s %12.6f%12.6f%12.6f\n'%(tag, float(line.split()[3]), float(line.split()[4]), float(line.split()[5])))
           out.close()        
           os.system("wc -l temp.xyz | awk '{print $1}' >> %s.xyz"%(molecule_name))
@@ -1486,7 +1488,7 @@ def GMX_gro(pdb_name):  #make the GMX gro file from the PDB file
         Atom_names_sites=[]
         for line in lines:
            if 'HETATM' in line:
-               out.write('    1%s    %s   %2i%8.3f%8.3f%8.3f\n'%(resname, line.split()[2], int(line.split()[1]), float(line.split()[6])/10, float(line.split()[7])/10, float(line.split()[8])/10))
+               out.write('    1%s    %s   %2i%8.3f%8.3f%8.3f\n'%(resname, line.split()[2], int(line.split()[1]), float(line[30:38])/10, float(line.split[38:46])/10, float(line[46:54])/10))
                Atom_names_sites.append(line.split()[2]) 
                o_tag=line.split()[3]
         out.write('%10.5f%10.5f%10.5f\n'%(1,1,1))
